@@ -1,0 +1,28 @@
+1.将mariadb_install_package_v10.1.12复制到/mnt目录下
+参考 “创建Yum安装本地源的方法.txt”
+
+2.执行（只需安装galera 即可）
+yum --enablerepo=mariadb -y install  galera
+
+3.参考 “centos7_mariadb_galera_HaProxy_集群.txt”
+配置/etc/my.cnf.d/mariadb-server.cnf即可
+
+4.停止mariadb服务并用以下方式启动（只在一个节点上初始化）
+警告 --wsrep-new-cluster 这个参数只能在初始化集群使用，且只能在一个节点使用。
+systemctl stop mariadb
+
+/usr/libexec/mysqld --wsrep-new-cluster --user=root &
+（用以上命令启动mariadb，需使用mysqladmin shutdown -uroot -popenstack 才能停止数据库服务,-r用户名，-p密码）
+
+5.其他节点配置集群后任用以下方式启动
+systemctl start mariadb
+
+
+
+修改mysqlroot密码
+执行
+mysql_secure_installation
+
+授权用户登录
+
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'openstack';

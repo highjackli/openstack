@@ -1,0 +1,206 @@
+1.负载均衡server
+
+loadbalacneMaster
+192.168.12.5 （网卡一，修改成固定IP，hostonly方式）
+192.168.1.78 （网卡二，桥接方式，以方便上外网）
+loadbalacneSlave（可选如不需要配置keepalived则只要一台负载均衡server即可）
+192.168.12.6 （网卡一，修改成固定IP，hostonly方式）
+192.168.1.81（网卡二，桥接方式，以方便上外网）
+
+2.服务器server
+clusterServer1
+192.168.12.2 （网卡一，修改成固定IP，hostonly方式）
+192.168.1.82（网卡二，桥接方式，以方便上外网）
+clusterServer2
+192.168.12.3（网卡一，修改成固定IP，hostonly方式）
+192.168.1.83（网卡二，桥接方式，以方便上外网）
+clusterServer3
+192.168.12.4（网卡一，修改成固定IP，hostonly方式）
+192.168.1.108（网卡二，桥接方式，以方便上外网）
+
+3.hostname配置（修改/etc/hosts，添加如下内容）
+192.168.12.5 loadbalacneMaster  
+192.168.12.6 loadbalacneSlave
+192.168.12.2 clusterServer1
+192.168.12.3 clusterServer2
+192.168.12.4 clusterServer3
+
+4）mariadb 集群（参考http://blog.csdn.net/ns2250225/article/details/52003630）
+4.1）（每个节点都需要执行）
+4.1.1）vi /etc/yum.repo.d/mariadb.repo
+
+# MariaDB 10.1 CentOS repository list - created 2016-09-01 06:48 UTC
+# http://downloads.mariadb.org/mariadb/repositories/
+[mariadb]
+name = MariaDB
+baseurl = http://yum.mariadb.org/10.1.12/centos7-amd64
+gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+gpgcheck=1
+
+yum clean all
+
+yum makecache
+
+（如不能上网，通过本地源安装可参考 创建Yum安装本地源的方法.txt）
+
+#yum -y install MariaDB-Galera-server MariaDB-client galera(10.1以前的版本)
+#yum install MariaDB-server MariaDB-client(10.1以后的版本)
+#yum --enablerepo=mariadb -y install MariaDB-server MariaDB-client galera
+#yum --enablerepo=mariadb -y install MariaDB-client
+yum --enablerepo=mariadb -y install MariaDB-server galera
+安装完后，查看/etc/my.cnf.d/下的文件是否为如下：
+mariadb-client.conf
+server.conf
+tokudb.conf
+
+4.1.2）关闭SELINUX
+修改/etc/selinux/config文件中的SELINUX="" 为 disabled
+关闭防火墙
+systemctl stop firewalld.service
+systemctl disable firewalld.service
+
+然后重启server
+
+4.2）【clusterServer1】配置如下
+vi /etc/my.cnf.d/server.cnf
+[galera]
+# Mandatory settings
+wsrep_on=ON
+wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+wsrep_cluster_address=gcomm://    
+binlog_format=row
+default_storage_engine=InnoDB
+innodb_autoinc_lock_mode=2
+#
+# Allow server to accept connections on all interfaces.
+#
+bind-address=0.0.0.0
+wsrep_cluster_name="Mycluster"
+wsrep_node_address=192.168.12.2
+wsrep_sst_method=rsync
+#
+# Optional setting
+#wsrep_slave_threads=1
+#innodb_flush_log_at_trx_commit=0
+
+启动集群：/bin/galera_new_cluster 
+如果是在openstack上的controler节点上配置mariadb集群使用以下命令启动集群
+
+/usr/libexec/mysqld --wsrep-new-cluster --user=root &
+警告 --wsrep-new-cluster 这个参数只能在初始化集群使用，且只能在一个节点使用。
+
+
+4.3）【clusterServer2】配置如下
+vi /etc/my.cnf.d/server.cnf
+[galera]
+# Mandatory settings
+wsrep_on=ON
+wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+wsrep_cluster_address="gcomm://192.168.12.2,192.168.12.3,192.168.12.4"
+binlog_format=row
+default_storage_engine=InnoDB
+innodb_autoinc_lock_mode=2
+#
+# Allow server to accept connections on all interfaces.
+#
+bind-address=0.0.0.0
+wsrep_cluster_name="Mycluster"
+wsrep_node_address="192.168.12.3"
+wsrep_sst_method=rsync
+#wsrep_provider_options=" gcache.dir = /var/lib/mysql"
+#wsrep_provider_options=" base_dir = /var/lib/mysql"
+
+#
+# Optional setting
+#wsrep_slave_threads=1
+#innodb_flush_log_at_trx_commit=0
+chkconfig mariadb on(mariadb开机自启动)
+启动集群节点：systemctl start mariadb
+
+4.4）【clusterServer3】配置如下
+[galera]
+# Mandatory settings
+wsrep_on=ON
+wsrep_provider=/usr/lib64/galera/libgalera_smm.so
+wsrep_cluster_address="gcomm://192.168.12.2,192.168.12.3,192.168.12.4"
+binlog_format=row
+default_storage_engine=InnoDB
+innodb_autoinc_lock_mode=2
+#
+# Allow server to accept connections on all interfaces.
+#
+bind-address=0.0.0.0
+wsrep_cluster_name="Mycluster"
+wsrep_node_address="192.168.12.4"
+wsrep_sst_method=rsync
+#wsrep_provider_options=" gcache.dir = /var/lib/mysql"
+#wsrep_provider_options=" base_dir = /var/lib/mysql"
+
+#
+# Optional setting
+#wsrep_slave_threads=1
+#innodb_flush_log_at_trx_commit=0
+chkconfig mariadb on(mariadb开机自启动)
+启动集群节点：systemctl start mariadb
+
+4.5）如何还需增加其他节点，则重复4.3或4.4的操作，需修改wsrep_cluster_address添加新的节点IP 和 wsrep_node_address配置成新的节点IP
+
+4.7）查看集群创建成功状态
+登入mysql
+mysql -u -p
+执行
+show status like 'wsrep_%';  （查看相关参数，看集群是否创建成功）
+ wsrep_cluster_size           | 3            （加入集群的节点数）                                          
+ wsrep_local_state_comment    | Synced        （表示集群创建成功）                                       
+
+4.7）在任意节点上创建一个表，然后登入其他节点数据看，看是否同样的创建了表，如创建，则集群成功
+create table test1(  
+ID bigint not  null,  
+name VARCHAR(100) not  null);
+
+insert into test1 values(1,'bruce');
+
+5）Haproxy负载代理（版本 haproxy-1.6.2）
+在192.168.12.5 loadbalacneMaster  节点上安装Haproxy
+（参考https://www.upcloud.com/support/haproxy-load-balancer-centos/）
+查看官方库的最新版本
+sudo yum info haproxy
+安装GCC
+sudo yum install wget gcc pcre-static pcre-devel -y
+下载haproxy-1.6.2.tar.gz并将此文件放到root目录下
+tar xzvf /root/haproxy-1.6.2.tar.gz -C /root
+cd haproxy-1.6.2
+编译
+make TARGET=linux2628
+安装haproxy
+sudo make install
+完全安装
+sudo cp /usr/local/sbin/haproxy /usr/sbin/
+sudo cp /root/haproxy-1.6.2/examples/haproxy.init /etc/init.d/haproxy
+sudo chmod 755 /etc/init.d/haproxy
+Create these directories and the statistics file for HAProxy to record in
+sudo mkdir -p /etc/haproxy
+sudo mkdir -p /run/haproxy
+sudo mkdir -p /var/lib/haproxy
+sudo touch /var/lib/haproxy/stats
+安装后检查版本
+sudo haproxy -v
+创建配置文件
+sudo vi /etc/haproxy/haproxy.cfg（haproxy.cfg配置参考http://www.cnblogs.com/lion.net/p/5725474.html）
+配置好后启动haproxy
+/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg
+访问测试haproxy监控页面，看其能否正常显示
+http://192.168.12.5:1080/haproxy?stats
+
+将haproxy做成系统service以方便自启动
+修改/etc/rc.d/init.d/haproxy 配置BIN 和PIDFILE 路径
+
+就可以使用 service haproxy start|stop|restart 来启动停止跟重启。
+
+并通过以下命令将haproxy加载到开机服务启动列表
+chkconfig haproxy on
+
+4.4）使用java 代码测试访问rabbitmq集群（参考http://blog.csdn.net/wang_dong_yang/article/details/49759609）
+通过192.168.12.5:5672就可以通过负载均衡server访问rabbitmq集群服务。
+
+

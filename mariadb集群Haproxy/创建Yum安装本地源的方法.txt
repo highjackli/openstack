@@ -1,0 +1,22 @@
+参考网站：http://www.jb51.net/os/RedHat/313897.html
+http://yum.baseurl.org/wiki/RepoCreate
+
+1.安装 createrepo
+yum install createrepo
+2.创建自定义的repo（例如安装mariadb）
+ cat <<END >/etc/yum.repos.d/mariadb.repo
+[mariadb]
+name=mariadb
+baseurl=file:///mnt/mariadb_install_package_v10.1.12
+gpgcheck=0
+enabled=1
+proxy=_none_
+END
+
+3.将需要安装的所有rpm放到/mnt/mariadb_install_package_v10.1.12 下面
+执行
+createrepo /mnt/mariadb_install_package_v10.1.12 
+或（createrepo --update /mnt/mariadb_package  当目录下面有新添加rpm包时）
+
+4.执行Yum进行相关包安装时  指定安装源的库（例如安装mariadb）
+yum --enablerepo=mariadb -y install  MariaDB-server galera
